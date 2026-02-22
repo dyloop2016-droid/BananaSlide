@@ -1,20 +1,30 @@
-import { GeneratorType } from "../types";
+import { GeneratorType, ApiKeys } from "../types";
 import { ImageGenerator } from "./imageGeneratorService";
 import { GeminiGenerator } from "./generators/geminiGenerator";
-import { DalleGenerator } from "./generators/dalleGenerator";
-import { StabilityGenerator } from "./generators/stabilityGenerator";
+import { VolcengineGenerator } from "./generators/volcengineGenerator";
 
 export class ImageGeneratorFactory {
-  static createGenerator(type: GeneratorType): ImageGenerator {
+  static createGenerator(type: GeneratorType, apiKeys: ApiKeys): ImageGenerator {
     switch (type) {
       case GeneratorType.GEMINI:
-        return new GeminiGenerator();
-      case GeneratorType.DALLE:
-        return new DalleGenerator();
-      case GeneratorType.STABILITY:
-        return new StabilityGenerator();
+        if (!apiKeys.geminiApiKey) {
+          throw new Error("请在设置中填写 Gemini API Key");
+        }
+        return new GeminiGenerator(apiKeys.geminiApiKey);
+      case GeneratorType.VOLCENGINE:
+        if (!apiKeys.volcengineSecretKey) {
+          throw new Error("请在设置中填写火山方舟 API Key");
+        }
+        return new VolcengineGenerator({
+          accessKey: "",
+          secretKey: apiKeys.volcengineSecretKey,
+          endpoint: apiKeys.volcengineEndpoint
+        });
       default:
-        return new GeminiGenerator();
+        if (!apiKeys.geminiApiKey) {
+          throw new Error("请在设置中填写 Gemini API Key");
+        }
+        return new GeminiGenerator(apiKeys.geminiApiKey);
     }
   }
 }

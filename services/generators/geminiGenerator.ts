@@ -30,8 +30,14 @@ function getMimeType(base64: string): string {
 }
 
 export class GeminiGenerator implements ImageGenerator {
+  private apiKey: string;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
   private getClient() {
-    return new GoogleGenAI({ apiKey: process.env.API_KEY });
+    return new GoogleGenAI({ apiKey: this.apiKey });
   }
 
   /**

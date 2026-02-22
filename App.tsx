@@ -1,21 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Layout, History, Plus, Layers, Wand2, DownloadCloud, Key, X, ZoomIn } from 'lucide-react';
-import { GenerationSettings, SlideData, ModelType, AspectRatio, ImageSize, GeneratorType } from './types';
+import { Layout, History, Plus, Layers, Wand2, DownloadCloud, X } from 'lucide-react';
+import { GenerationSettings, SlideData, ModelType, AspectRatio, ImageSize, GeneratorType, ApiKeys, VolcengineModel, VolcengineResolution } from './types';
 import SettingsPanel from './components/SettingsPanel';
 import SlideRow from './components/SlideRow';
 import HistoryView from './components/HistoryView';
 import { ImageGeneratorFactory } from './services/imageGeneratorFactory';
 import { fileToBase64 } from './services/generators/geminiGenerator';
 
-// Add type definition for window.aistudio
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-}
-
-// Default Settings
 const DEFAULT_SETTINGS: GenerationSettings = {
   pptStyle: '',
   colorScheme: '',
@@ -23,9 +14,42 @@ const DEFAULT_SETTINGS: GenerationSettings = {
   referenceImage: null,
   model: ModelType.PRO,
   aspectRatio: AspectRatio.WIDESCREEN,
-  customAspectRatio: '21:9', // Default custom value
+  customAspectRatio: '21:9',
   imageSize: ImageSize.K1,
-  generatorType: GeneratorType.GEMINI
+  generatorType: GeneratorType.GEMINI,
+  volcengineModel: VolcengineModel.SEEDDREAM_4_5,
+  volcengineResolution: VolcengineResolution.K2
+};
+
+const DEFAULT_API_KEYS: ApiKeys = {
+  geminiApiKey: '',
+  volcengineAccessKey: '',
+  volcengineSecretKey: '',
+  volcengineEndpoint: ''
+};
+
+const loadSavedApiKeys = (): ApiKeys => {
+  try {
+    const saved = localStorage.getItem('bananaslide-apikeys');
+    if (saved) {
+      return { ...DEFAULT_API_KEYS, ...JSON.parse(saved) };
+    }
+  } catch (e) {
+    console.error('Failed to load API keys', e);
+  }
+  return DEFAULT_API_KEYS;
+};
+
+const loadSavedSettings = (): GenerationSettings => {
+  try {
+    const saved = localStorage.getItem('bananaslide-settings');
+    if (saved) {
+      return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+    }
+  } catch (e) {
+    console.error('Failed to load settings', e);
+  }
+  return DEFAULT_SETTINGS;
 };
 
 const createEmptySlide = (): SlideData => ({
@@ -39,36 +63,22 @@ const createEmptySlide = (): SlideData => ({
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'workspace' | 'history'>('workspace');
-  const [settings, setSettings] = useState<GenerationSettings>(DEFAULT_SETTINGS);
-  // Initialize with 2 empty slides
+  const [settings, setSettings] = useState<GenerationSettings>(loadSavedSettings);
+  const [apiKeys, setApiKeys] = useState<ApiKeys>(loadSavedApiKeys);
   const [slides, setSlides] = useState<SlideData[]>([createEmptySlide(), createEmptySlide()]);
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
-  const [apiKeyReady, setApiKeyReady] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  
+
   const batchInputRef = useRef<HTMLInputElement>(null);
 
-  // --- API Key Check ---
   useEffect(() => {
-    const checkKey = async () => {
-      if (window.aistudio) {
-        const has = await window.aistudio.hasSelectedApiKey();
-        setApiKeyReady(has);
-      } else {
-        setApiKeyReady(true);
-      }
-    };
-    checkKey();
-  }, []);
+    localStorage.setItem('bananaslide-apikeys', JSON.stringify(apiKeys));
+  }, [apiKeys]);
 
-  const handleConnectKey = async () => {
-    if (window.aistudio) {
-      await window.aistudio.openSelectKey();
-      setApiKeyReady(true);
-    }
-  };
-
-  // --- Slide Management ---
+  useEffect(() => {
+    const { referenceImage, ...settingsToSave } = settings;
+    localStorage.setItem('bananaslide-settings', JSON.stringify(settingsToSave));
+  }, [settings]);
 
   const addSlide = () => {
     setSlides(prev => [...prev, createEmptySlide()]);
@@ -105,8 +115,6 @@ const App: React.FC = () => {
     setSlides(prev => prev.filter(s => s.id !== id));
   };
 
-  // --- Generation Logic ---
-
   const generateSlide = async (id: string) => {
     const slideIndex = slides.findIndex(s => s.id === id);
     if (slideIndex === -1) return;
@@ -115,21 +123,27 @@ const App: React.FC = () => {
     updateSlide(id, { status: 'generating', errorMessage: undefined });
 
     try {
-      // Create generator based on selected API service
-      const generator = ImageGeneratorFactory.createGenerator(settings.generatorType);
-      
+      console.log('生成图片 - API类型:', settings.generatorType);
+      console.log('生成图片 - 火山引擎Key长度:', apiKeys.volcengineSecretKey?.length || 0);
+      console.log('生成图片 - Gemini Key长度:', apiKeys.geminiApiKey?.length || 0);
+
+      const generator = ImageGeneratorFactory.createGenerator(settings.generatorType, apiKeys);
+
       const images = await generator.generateVariations(
-        settings, 
-        slide.contentPrompt, 
+        settings,
+        slide.contentPrompt,
         slide.contentImage,
         slide.variantCount
       );
       updateSlide(id, { status: 'success', generatedImages: images });
     } catch (error: any) {
       const errorMsg = error.toString();
-      if (errorMsg.includes("Requested entity was not found") || errorMsg.includes("403") || errorMsg.includes("API key")) {
-        setApiKeyReady(false);
-        updateSlide(id, { status: 'error', errorMessage: "请检查 API Key 配置" });
+      console.error('生成图片错误:', errorMsg);
+      if (errorMsg.includes("API key") || errorMsg.includes("Key") || errorMsg.includes("未设置")) {
+        const detailMsg = apiKeys.volcengineSecretKey ?
+          `API Key已填写，长度: ${apiKeys.volcengineSecretKey.length}，但仍提示错误: ${error.message}` :
+          "请在设置中填写火山方舟 API Key";
+        updateSlide(id, { status: 'error', errorMessage: detailMsg });
       } else {
         updateSlide(id, { status: 'error', errorMessage: error.message || "生成失败" });
       }
@@ -142,7 +156,6 @@ const App: React.FC = () => {
     
     for (const slide of targets) {
       await generateSlide(slide.id);
-      if (!apiKeyReady) break; 
     }
     setIsBatchGenerating(false);
   };
@@ -166,46 +179,8 @@ const App: React.FC = () => {
 
   const hasGeneratedImages = slides.some(s => s.generatedImages.length > 0);
 
-  // --- API Key Selection Screen ---
-  if (!apiKeyReady) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-50 p-6 relative overflow-hidden">
-        {/* Background Decorations */}
-        <div className="absolute top-0 left-0 w-64 h-64 bg-yellow-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 -translate-x-1/2 -translate-y-1/2 animate-blob"></div>
-        <div className="absolute top-0 right-0 w-64 h-64 bg-orange-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 translate-x-1/2 -translate-y-1/2 animate-blob animation-delay-2000"></div>
-        
-        <div className="bg-white/80 backdrop-blur-xl p-8 rounded-3xl shadow-xl border border-white max-w-md w-full text-center relative z-10">
-          <div className="bg-gradient-to-br from-yellow-400 to-orange-500 text-white w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-orange-200 transform rotate-3">
-             <Layers size={40} className="text-white drop-shadow-md" />
-          </div>
-          
-          <h1 className="text-3xl font-bold text-gray-900 mb-3 tracking-tight">BananaSlide 工作台</h1>
-          <p className="text-gray-500 mb-8 leading-relaxed">
-            欢迎使用 AI 幻灯片设计助手。为了使用 Gemini Pro 高级绘图模型，请先连接您的 Google Cloud API Key。
-          </p>
-
-          <button 
-            onClick={handleConnectKey}
-            className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-gray-800 transition-all shadow-lg hover:shadow-xl hover:-translate-y-1 flex items-center justify-center gap-2"
-          >
-            <Key size={20} />
-            连接 API Key
-          </button>
-
-          <p className="mt-6 text-xs text-gray-400 leading-normal">
-            请确保选择已关联 Billing 的 Google Cloud 项目。<br/>
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-blue-500 hover:text-blue-700 underline">
-              查看计费说明文档
-            </a>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-full flex flex-col bg-gray-50/50 font-sans relative">
-      {/* Header / Navigation */}
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between flex-shrink-0 z-30 shadow-sm sticky top-0">
         <div className="flex items-center gap-3">
           <div className="bg-gradient-to-br from-yellow-400 to-yellow-600 text-white p-2 rounded-xl shadow-lg shadow-yellow-200/50">
@@ -234,7 +209,6 @@ const App: React.FC = () => {
           </button>
         </div>
 
-        {/* Global Actions */}
         <div className="flex items-center gap-2">
             <button 
               onClick={() => batchInputRef.current?.click()}
@@ -277,15 +251,17 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content Area - Scrollable including settings */}
       <main className="flex-1 overflow-y-auto bg-gray-50 scroll-smooth">
         {activeTab === 'workspace' ? (
           <div className="flex flex-col min-h-full">
             
-            {/* Settings Panel is now part of the scroll flow */}
-            <SettingsPanel settings={settings} onSettingsChange={setSettings} />
+            <SettingsPanel 
+              settings={settings} 
+              apiKeys={apiKeys}
+              onSettingsChange={setSettings} 
+              onApiKeysChange={setApiKeys}
+            />
 
-            {/* Canvas Area */}
             <div className="flex-1 px-4 md:px-6 py-6">
               <div className="max-w-[1400px] mx-auto space-y-8 pb-20">
                 {slides.length === 0 ? (
@@ -294,7 +270,7 @@ const App: React.FC = () => {
                           <Layout size={48} className="text-gray-300" />
                       </div>
                       <h3 className="text-lg font-bold text-gray-700">开始您的 PPT 设计</h3>
-                      <p className="text-sm mt-2 text-gray-500 max-w-xs text-center">点击下方 “添加空白页面” 或上方 “批量上传” 开启您的创作之旅</p>
+                      <p className="text-sm mt-2 text-gray-500 max-w-xs text-center">点击下方 "添加空白页面" 或上方 "批量上传" 开启您的创作之旅</p>
                   </div>
                 ) : (
                   slides.map((slide, index) => (
@@ -310,7 +286,6 @@ const App: React.FC = () => {
                   ))
                 )}
                 
-                {/* Bottom Add Button */}
                 <button 
                   onClick={addSlide}
                   className="w-full py-6 border-2 border-dashed border-gray-300 rounded-2xl flex items-center justify-center gap-2 text-gray-500 hover:text-yellow-600 hover:border-yellow-400 hover:bg-yellow-50/50 transition-all group font-semibold"
@@ -327,7 +302,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Image Preview Modal */}
       {previewImage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <button 

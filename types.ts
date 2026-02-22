@@ -22,8 +22,34 @@ export enum ImageSize {
 
 export enum GeneratorType {
   GEMINI = "gemini",
-  DALLE = "dalle",
-  STABILITY = "stability"
+  VOLCENGINE = "volcengine"
+}
+
+export enum VolcengineModel {
+  SEEDDREAM_4_0 = "seeddream-4.0",
+  SEEDDREAM_4_5 = "seeddream-4.5"
+}
+
+export enum VolcengineResolution {
+  K2 = "2K",
+  K4 = "4K"
+}
+
+export const VOLCENGINE_ASPECT_RATIOS: { val: AspectRatio; label: string; size: string }[] = [
+  { val: AspectRatio.SQUARE, label: "1:1", size: "1024x1024" },
+  { val: AspectRatio.LANDSCAPE, label: "4:3", size: "1152x864" },
+  { val: AspectRatio.PORTRAIT, label: "3:4", size: "864x1152" },
+  { val: AspectRatio.WIDESCREEN, label: "16:9", size: "1280x720" },
+  { val: AspectRatio.VERTICAL, label: "9:16", size: "720x1280" },
+  { val: AspectRatio.ULTRAWIDE, label: "21:9", size: "1512x648" },
+  { val: AspectRatio.ULTRATALL, label: "9:21", size: "648x1512" },
+];
+
+export interface ApiKeys {
+  geminiApiKey: string;
+  volcengineAccessKey: string;
+  volcengineSecretKey: string;
+  volcengineEndpoint?: string;
 }
 
 export interface GenerationSettings {
@@ -36,6 +62,8 @@ export interface GenerationSettings {
   customAspectRatio?: string; // Stores the "W:H" string when AspectRatio.CUSTOM is selected
   imageSize: ImageSize;
   generatorType: GeneratorType; // Image generator API type
+  volcengineModel: VolcengineModel; // Volcengine specific model
+  volcengineResolution: VolcengineResolution; // Volcengine specific resolution
 }
 
 export interface SlideData {
